@@ -1,8 +1,6 @@
 # mono event 
 Blazingly fast event system
 
-Event dispatches should get compiled down to a plain function that executes all handlers involved with no dynamic dispatches.
-
 This library is nightly-only as it relies on specialization
 
 ```rust
