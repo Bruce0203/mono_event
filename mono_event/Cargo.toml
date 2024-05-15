@@ -13,4 +13,4 @@ include = [
 ]
 
 [dependencies]
-mono_event_derive = { path = "../mono_event_derive" } 
+mono_event_derive = { path = "../mono_event_derive", version = "0.3.0" } 
