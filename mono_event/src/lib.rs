@@ -1,6 +1,8 @@
 use mono_event_derive::expand_listener_structs;
 
-pub use mono_event_derive::{event, listen};
+pub use mono_event_derive::{
+    event, high_priority, highest_priority, listen, low_priority, lowest_priority, normal_priority,
+};
 
 use std::io::Result;
 

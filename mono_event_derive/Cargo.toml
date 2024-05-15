@@ -1,6 +1,6 @@
 [package]
 name = "mono_event_derive"
-version = "0.2.0"
+version.workspace = true
 edition = "2021"
 author = "Bruce0203 <brucefreedy@gmail.com>"
 description = "Derive macros for mono_event"

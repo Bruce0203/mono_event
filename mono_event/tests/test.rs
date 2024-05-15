@@ -1,59 +1,23 @@
 #![feature(min_specialization)]
 
-mod a {
-    use mono_event::{event, listen};
+use mono_event::{event, highest_priority, listen, low_priority};
 
-    #[event]
-    pub struct SayHi {
-        pub name: String,
-    }
+#[event]
+pub struct SayHi;
 
-    #[listen(SayHi)]
-    fn print_hi(event: &mut SayHi) {
-        println!("teest a hi ");
-    }
-
-    #[listen(SayHi)]
-    fn print_hmm(event: &mut SayHi) {
-        println!("test a hmm");
-    }
-
-    #[test]
-    fn main() {
-        SayHi {
-            name: "Bruce".to_string(),
-        }
-        .dispatch()
-        .unwrap();
-    }
+#[highest_priority]
+#[listen(SayHi)]
+fn print_hi(event: &mut SayHi) {
+    println!("say hi");
 }
 
-mod b {
-    use mono_event::{event, high_priority, listen};
+#[low_priority]
+#[listen(SayHi)]
+fn print_hmm(event: &mut SayHi) {
+    println!("say hmm..");
+}
 
-    #[event]
-    pub struct SayHi {
-        pub name: String,
-    }
-
-    #[listen(SayHi)]
-    #[low_priority]
-    fn print_hi(event: &mut SayHi) {
-        println!("teest b hi ");
-    }
-
-    #[high_priority]
-    #[listen(SayHi)]
-    fn print_hmm(event: &mut SayHi) {
-        println!("test b hmm");
-    }
-
-    #[test]
-    fn main() {
-        SayHi {
-            name: "Bruce".to_string(),
-        }
-        .dispatch()
-        .unwrap();
-    }
+#[test]
+fn example() {
+    SayHi.dispatch().unwrap();
 }

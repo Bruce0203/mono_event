@@ -1,6 +1,6 @@
 [package]
 name = "mono_event"
-version = "0.2.0"
+version.workspace = true
 edition = "2021"
 author = "Bruce0203 <brucefreedy@gmail.com>"
 description = "super fast event system"
@@ -13,4 +13,4 @@ include = [
 ]
 
 [dependencies]
-mono_event_derive = { path = "../mono_event_derive", version = "0.2.0" } 
+mono_event_derive = { path = "../mono_event_derive" } 

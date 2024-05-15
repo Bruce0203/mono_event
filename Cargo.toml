@@ -4,3 +4,6 @@ members = [
     "mono_event",
     "mono_event_derive"
 ]
+
+[workspace.package]
+version = "0.3.0"
