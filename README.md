@@ -1,5 +1,4 @@
 # mono event 
-Blazingly fast event system
 
 This library is nightly-only as it relies on specialization
 
@@ -7,6 +6,11 @@ This library is nightly-only as it relies on specialization
 #![feature(min_specialization)]
 
 use mono_event::{event, highest_priority, listen, low_priority};
+
+#[test]
+fn example() {
+    SayHi.dispatch().unwrap();
+}
 
 #[event]
 pub struct SayHi;
@@ -23,7 +27,9 @@ fn print_hmm(event: &mut SayHi) {
     println!("say hmm..");
 }
 
-#[test]
-fn example() {
-    SayHi.dispatch().unwrap();
-}```
+```
+```
+output:
+say hmm..
+say hi
+```
