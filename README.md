@@ -6,29 +6,24 @@ This library is nightly-only as it relies on specialization
 ```rust
 #![feature(min_specialization)]
 
-use mono_event::{event, listen};
+use mono_event::{event, highest_priority, listen, low_priority};
 
 #[event]
-pub struct SayHi {
-    name: String,
-}
+pub struct SayHi;
 
+#[highest_priority]
 #[listen(SayHi)]
 fn print_hi(event: &mut SayHi) {
-    println!("hi");
+    println!("say hi");
 }
 
+#[low_priority]
 #[listen(SayHi)]
 fn print_hmm(event: &mut SayHi) {
-    println!("hmm");
+    println!("say hmm..");
 }
 
 #[test]
-fn main() {
-    SayHi {
-        name: "Bruce".to_string(),
-    }
-    .dispatch()
-    .unwrap();
-}
-```
+fn example() {
+    SayHi.dispatch().unwrap();
+}```
