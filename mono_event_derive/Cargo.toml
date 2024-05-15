@@ -2,6 +2,15 @@
 name = "mono_event_derive"
 version = "0.1.0"
 edition = "2021"
+author = "Bruce0203 <brucefreedy@gmail.com>"
+description = "Derive macros for mono_event"
+repository = "https://github.com/Bruce0203/mono_event"
+license = "MIT"
+readme = "README.md"
+include = [
+    "**/*.rs",
+    "Cargo.toml",
+]
 
 [lib]
 proc-macro = true
