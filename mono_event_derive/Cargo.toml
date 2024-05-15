@@ -1,0 +1,12 @@
+[package]
+name = "mono_event_derive"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2.0.58", features = ["full"] }
+quote = "1.0.36" 
+once_cell = "1.19.0"
