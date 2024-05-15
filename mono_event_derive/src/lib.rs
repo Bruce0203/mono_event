@@ -17,16 +17,16 @@ pub fn event(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let listeners = (1..LISTENER_CAPACITY + 1).map(|i| {
         let listener: Ident = syn::parse_str(format!("__Listener{i}").as_str()).unwrap();
         quote! {
-            <#name as mono_event::EventListener::<#name, mono_event::#listener>>::__listen(self)?;
+            <#name as mono_event::EventListener::<#name, mono_event::#listener>>::__listen(self);
         }
     });
+
     quote! {
         #input
 
         impl #name {
-            fn dispatch(&mut self) -> std::io::Result<()> {
+            fn dispatch(&mut self) {
                 #(#listeners)*
-                Ok(())
             }
         }
 
@@ -63,8 +63,8 @@ pub fn listen(attr: TokenStream, item: TokenStream) -> TokenStream {
                     break;
                 }
             }
-            syn::Meta::List(_) => todo!(),
-            syn::Meta::NameValue(_) => todo!(),
+            syn::Meta::List(_) => {}
+            syn::Meta::NameValue(_) => {}
         }
         i += 1;
     }

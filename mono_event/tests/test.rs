@@ -19,5 +19,5 @@ fn print_hmm(event: &mut SayHi) {
 
 #[test]
 fn example() {
-    SayHi.dispatch().unwrap();
+    SayHi.dispatch();
 }
