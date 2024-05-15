@@ -4,20 +4,23 @@ use std::{collections::HashMap, sync::Mutex};
 
 use once_cell::sync::Lazy;
 use proc_macro::TokenStream;
-use quote::quote;
-use syn::{Ident, LitInt, ReturnType};
+use quote::{quote, ToTokens};
+use syn::{Ident, ItemFn, ReturnType};
+
+const LISTENER_CAPACITY: usize = 1000;
+const SINGLE_PRIORITY_LISETNER_CAPACITY: usize = LISTENER_CAPACITY / PRIORITIES_AMOUNT;
 
 #[proc_macro_attribute]
 pub fn event(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(item as syn::ItemStruct);
     let name: &syn::Ident = &input.ident;
-    let listeners = (1..100 + 1).map(|i| {
+    let listeners = (1..LISTENER_CAPACITY + 1).map(|i| {
         let listener: Ident = syn::parse_str(format!("__Listener{i}").as_str()).unwrap();
         quote! {
             <#name as mono_event::EventListener::<#name, mono_event::#listener>>::__listen(self)?;
         }
     });
-    let expanded = quote! {
+    quote! {
         #input
 
         impl #name {
@@ -32,15 +35,14 @@ pub fn event(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 Ok(())
             }
         }
-    };
-    TokenStream::from(expanded)
+    }
+    .into()
 }
 
 #[proc_macro_attribute]
 pub fn listen(attr: TokenStream, item: TokenStream) -> TokenStream {
     static mut LISETNER_COUNT_CACHE: Lazy<Mutex<HashMap<String, i32>>> =
         Lazy::new(|| Mutex::new(HashMap::new()));
-
     let event = syn::parse_macro_input!(attr as syn::Ident);
     let input = syn::parse_macro_input!(item as syn::ItemFn);
     let block = input.block;
@@ -48,32 +50,110 @@ pub fn listen(attr: TokenStream, item: TokenStream) -> TokenStream {
         ReturnType::Default => quote! { Ok(()) },
         ReturnType::Type(_, _) => quote! {},
     };
+    let mut attrs = input.attrs;
+    let mut lisetner_index = EventPriority::normal_priority.get_listener_index();
+    let mut i = 0;
+    for attr in attrs.iter() {
+        match &attr.meta {
+            syn::Meta::Path(path) => {
+                let attr_name = path.to_token_stream().to_string();
+                if let Ok(priority) = TryInto::<EventPriority>::try_into(attr_name) {
+                    lisetner_index = priority.get_listener_index();
+                    attrs.remove(i);
+                    break;
+                }
+            }
+            syn::Meta::List(_) => todo!(),
+            syn::Meta::NameValue(_) => todo!(),
+        }
+        i += 1;
+    }
 
     let mut mutex = unsafe { LISETNER_COUNT_CACHE.lock().unwrap() };
-    let listener_count: i32 = if let Some(value) = mutex.get_mut(&event.to_string()) {
-        *value += 1;
-        value.clone()
-    } else {
-        mutex.insert(event.to_string(), 1);
-        1
-    };
-    let listener: Ident = syn::parse_str(format!("__Listener{listener_count}").as_str()).unwrap();
-    let expanded = quote! {
+
+    let listener_count: i32 = *mutex
+        .entry(event.to_string())
+        .and_modify(|val| *val += 1)
+        .or_insert(1);
+    assert!(
+        listener_count <= SINGLE_PRIORITY_LISETNER_CAPACITY as i32,
+        "listeners count reaced at the capacity {SINGLE_PRIORITY_LISETNER_CAPACITY}"
+    );
+    lisetner_index += listener_count;
+
+    let listener: Ident = syn::parse_str(format!("__Listener{lisetner_index}").as_str()).unwrap();
+
+    quote! {
         impl mono_event::EventListener<#event, mono_event::#listener> for #event {
+            #(#attrs)*
             default fn __listen(event: &mut #event) -> std::io::Result<()> {
                 #block
                 #return_value
             }
         }
-    };
-    TokenStream::from(expanded)
+    }
+    .into()
 }
 
+macro_rules! priories {
+    ($($priority:ident),*) => {
+        #[repr(i32)]
+        pub(crate) enum EventPriority {
+            $(
+                $priority,
+            )*
+        }
+
+        const PRIORITIES_AMOUNT: usize = [$($priority),*].len();
+
+        impl EventPriority {
+            const fn get_listener_index(self) -> i32 {
+                let value = self as i32;
+                value * SINGLE_PRIORITY_LISETNER_CAPACITY as i32
+            }
+        }
+
+
+        impl TryFrom<String> for EventPriority {
+            type Error = std::io::Error;
+
+            fn try_from(value: String) -> Result<Self, Self::Error> {
+                Ok(match value.as_str() {
+                    $(
+                    stringify!($priority) => EventPriority::$priority,
+                    )*
+                    _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "not a priority"))?,
+                })
+            }
+        }
+        $(
+            #[proc_macro_attribute]
+            pub fn $priority(_attr: TokenStream, input: TokenStream) -> TokenStream {
+                let mut item = syn::parse_macro_input!(input as ItemFn);
+                let attrs = &item.attrs.clone();
+                item.attrs.clear();
+                quote! {
+                    #(#attrs)*
+                    #[$priority]
+                    #item
+                }
+                .into()
+            }
+        )*
+    };
+}
+
+priories!(
+    lowest_priority,
+    low_priority,
+    normal_priority,
+    high_priority,
+    highest_priority
+);
+
 #[proc_macro]
-pub fn listeners_capacity(item: TokenStream) -> TokenStream {
-    let int = syn::parse_macro_input!(item as LitInt);
-    let amount: usize = int.base10_parse().unwrap();
-    let output: String = (1..amount + 1)
+pub fn expand_listener_structs(_item: TokenStream) -> TokenStream {
+    let output: String = (1..LISTENER_CAPACITY + 1)
         .map(|i| format!("pub struct __Listener{i};\n",))
         .collect();
     output.parse().unwrap()
