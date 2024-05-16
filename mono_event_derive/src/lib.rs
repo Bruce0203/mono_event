@@ -17,16 +17,16 @@ pub fn event(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let listeners = (1..LISTENER_CAPACITY + 1).map(|i| {
         let listener: Ident = syn::parse_str(format!("__Listener{i}").as_str()).unwrap();
         quote! {
-            <#name as mono_event::EventListener::<#name, mono_event::#listener>>::__listen(self);
+            <#name as mono_event::EventListener::<#name, mono_event::#listener>>::__listen(self)?;
         }
     });
-
     quote! {
         #input
 
         impl #name {
-            fn dispatch(&mut self) {
+            fn dispatch(&mut self) -> std::io::Result<()> {
                 #(#listeners)*
+                Ok(())
             }
         }
 
@@ -41,48 +41,51 @@ pub fn event(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
 #[proc_macro_attribute]
 pub fn listen(attr: TokenStream, item: TokenStream) -> TokenStream {
-    static mut LISETNER_COUNT_CACHE: Lazy<Mutex<HashMap<String, i32>>> =
-        Lazy::new(|| Mutex::new(HashMap::new()));
     let event = syn::parse_macro_input!(attr as syn::Ident);
-    let input = syn::parse_macro_input!(item as syn::ItemFn);
+    let mut input = syn::parse_macro_input!(item as syn::ItemFn);
     let block = input.block;
     let return_value = match input.sig.output {
         ReturnType::Default => quote! { Ok(()) },
         ReturnType::Type(_, _) => quote! {},
     };
-    let mut attrs = input.attrs;
-    let mut lisetner_index = EventPriority::normal_priority.get_listener_index();
-    let mut i = 0;
-    for attr in attrs.iter() {
-        match &attr.meta {
+    let listener_priority = {
+        let index = 0;
+        let attrs = input.attrs.clone();
+        let mut filtered = attrs.iter().filter_map(|attr| match &attr.meta {
             syn::Meta::Path(path) => {
                 let attr_name = path.to_token_stream().to_string();
                 if let Ok(priority) = TryInto::<EventPriority>::try_into(attr_name) {
-                    lisetner_index = priority.get_listener_index();
-                    attrs.remove(i);
-                    break;
+                    input.attrs.remove(index);
+                    Some(priority)
+                } else {
+                    None
                 }
             }
-            syn::Meta::List(_) => {}
-            syn::Meta::NameValue(_) => {}
-        }
-        i += 1;
-    }
+            syn::Meta::List(_) => None,
+            syn::Meta::NameValue(_) => None,
+        });
+        let listener_priority = filtered
+            .next()
+            .unwrap_or_else(|| EventPriority::normal_priority);
+        assert!(filtered.next().is_none(), "multiple priority defined");
+        listener_priority
+    };
 
-    let mut mutex = unsafe { LISETNER_COUNT_CACHE.lock().unwrap() };
-
-    let listener_count: i32 = *mutex
+    static LISETNER_COUNT_CACHE: Lazy<Mutex<HashMap<String, i32>>> =
+        Lazy::new(|| Mutex::new(HashMap::new()));
+    let listener_count = *LISETNER_COUNT_CACHE
+        .lock()
+        .unwrap()
         .entry(event.to_string())
         .and_modify(|val| *val += 1)
         .or_insert(1);
     assert!(
-        listener_count <= SINGLE_PRIORITY_LISETNER_CAPACITY as i32,
+        listener_count <= LISTENER_CAPACITY as i32,
         "listeners count reaced at the capacity {SINGLE_PRIORITY_LISETNER_CAPACITY}"
     );
-    lisetner_index += listener_count;
-
+    let lisetner_index = listener_priority.get_listener_index() + listener_count;
     let listener: Ident = syn::parse_str(format!("__Listener{lisetner_index}").as_str()).unwrap();
-
+    let attrs = input.attrs;
     quote! {
         impl mono_event::EventListener<#event, mono_event::#listener> for #event {
             #(#attrs)*
