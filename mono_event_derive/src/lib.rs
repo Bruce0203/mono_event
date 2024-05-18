@@ -7,11 +7,12 @@ use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{Ident, ItemFn, ReturnType};
 
-const LISTENER_CAPACITY: usize = 1000;
+const LISTENER_CAPACITY: usize = 250;
 const SINGLE_PRIORITY_LISETNER_CAPACITY: usize = LISTENER_CAPACITY / PRIORITIES_AMOUNT;
 
 #[proc_macro_attribute]
 pub fn event(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    println!("event!!!");
     let input = syn::parse_macro_input!(item as syn::ItemStruct);
     let name: &syn::Ident = &input.ident;
     let listeners = (1..LISTENER_CAPACITY + 1).map(|i| {
@@ -41,6 +42,7 @@ pub fn event(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
 #[proc_macro_attribute]
 pub fn listen(attr: TokenStream, item: TokenStream) -> TokenStream {
+    println!("listen!!!!");
     let event = syn::parse_macro_input!(attr as syn::Ident);
     let mut input = syn::parse_macro_input!(item as syn::ItemFn);
     let block = input.block;
