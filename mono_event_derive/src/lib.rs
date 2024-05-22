@@ -5,7 +5,7 @@ use std::{collections::HashMap, fmt::Display, ops::Range, sync::Mutex};
 use once_cell::sync::Lazy;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
-use syn::{parse_macro_input, parse_str, Ident, ItemFn, Meta, ReturnType};
+use syn::{parse_macro_input, parse_str, Ident, ItemFn, ItemStruct, Meta, ReturnType};
 
 const LISTENER_NAME: &'static str = "__Listener";
 const LISTENER_CAPACITY: usize = 250;
@@ -13,7 +13,7 @@ const LISTENER_RANGE: Range<usize> = 1..LISTENER_CAPACITY + 1;
 
 #[proc_macro_attribute]
 pub fn event(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(item as syn::ItemStruct);
+    let input = parse_macro_input!(item as ItemStruct);
     let name: &Ident = &input.ident;
     quote! {
         #input
@@ -171,26 +171,5 @@ pub fn expand_listeners_and_dispatching_function(_item: TokenStream) -> TokenStr
 
 #[inline(always)]
 fn format_listener_name<T: Display>(i: T) -> Result<Ident, syn::Error> {
-    syn::parse_str(format!("{LISTENER_NAME}{i}").as_str())
-}
-
-#[proc_macro]
-pub fn expand_for_test(_item: TokenStream) -> TokenStream {
-    let structs: Vec<Ident> = (0..1000)
-        .map(|i| parse_str(format!("MyStruct{i}").as_str()).unwrap())
-        .collect();
-    quote! {
-        #(
-            pub mod #structs {
-                use mono_event::{event, listen};
-            #[event]
-            pub struct #structs;
-            #[listen(#structs)]
-            fn listen(event: &mut #structs) {
-                println!("{}", stringify!(#structs));
-            }
-            }
-            )*
-    }
-    .into()
+    parse_str(format!("{LISTENER_NAME}{i}").as_str())
 }
