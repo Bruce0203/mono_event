@@ -1,38 +1,31 @@
 extern crate proc_macro;
 
-use std::{collections::HashMap, sync::Mutex};
+use std::{collections::HashMap, fmt::Display, ops::Range, sync::Mutex};
 
 use once_cell::sync::Lazy;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
-use syn::{Ident, ItemFn, ReturnType};
+use syn::{parse_macro_input, parse_str, Ident, ItemFn, Meta, ReturnType};
 
+const LISTENER_NAME: &'static str = "__Listener";
 const LISTENER_CAPACITY: usize = 250;
-const SINGLE_PRIORITY_LISETNER_CAPACITY: usize = LISTENER_CAPACITY / PRIORITIES_AMOUNT;
+const LISTENER_RANGE: Range<usize> = 1..LISTENER_CAPACITY + 1;
 
 #[proc_macro_attribute]
 pub fn event(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    println!("event!!!");
-    let input = syn::parse_macro_input!(item as syn::ItemStruct);
-    let name: &syn::Ident = &input.ident;
-    let listeners = (1..LISTENER_CAPACITY + 1).map(|i| {
-        let listener: Ident = syn::parse_str(format!("__Listener{i}").as_str()).unwrap();
-        quote! {
-            <#name as mono_event::EventListener::<#name, mono_event::#listener>>::__listen(self)?;
-        }
-    });
+    let input = parse_macro_input!(item as syn::ItemStruct);
+    let name: &Ident = &input.ident;
     quote! {
         #input
 
         impl #name {
-            fn dispatch(&mut self) -> std::io::Result<()> {
-                #(#listeners)*
-                Ok(())
+            pub fn dispatch(&mut self) -> core::result::Result<(), ()> {
+                mono_event::dispatch::<Self, Self>(self)
             }
         }
 
         impl<T> mono_event::EventListener<#name, T> for #name {
-            default fn __listen(event: &mut #name) -> std::io::Result<()> {
+            default fn __listen(event: &mut #name) -> core::result::Result<(), ()> {
                 Ok(())
             }
         }
@@ -42,9 +35,8 @@ pub fn event(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
 #[proc_macro_attribute]
 pub fn listen(attr: TokenStream, item: TokenStream) -> TokenStream {
-    println!("listen!!!!");
-    let event = syn::parse_macro_input!(attr as syn::Ident);
-    let mut input = syn::parse_macro_input!(item as syn::ItemFn);
+    let event = parse_macro_input!(attr as Ident);
+    let mut input = parse_macro_input!(item as ItemFn);
     let block = input.block;
     let return_value = match input.sig.output {
         ReturnType::Default => quote! { Ok(()) },
@@ -54,7 +46,7 @@ pub fn listen(attr: TokenStream, item: TokenStream) -> TokenStream {
         let index = 0;
         let attrs = input.attrs.clone();
         let mut filtered = attrs.iter().filter_map(|attr| match &attr.meta {
-            syn::Meta::Path(path) => {
+            Meta::Path(path) => {
                 let attr_name = path.to_token_stream().to_string();
                 if let Ok(priority) = TryInto::<EventPriority>::try_into(attr_name) {
                     input.attrs.remove(index);
@@ -63,8 +55,8 @@ pub fn listen(attr: TokenStream, item: TokenStream) -> TokenStream {
                     None
                 }
             }
-            syn::Meta::List(_) => None,
-            syn::Meta::NameValue(_) => None,
+            Meta::List(_) => None,
+            Meta::NameValue(_) => None,
         });
         let listener_priority = filtered
             .next()
@@ -83,15 +75,15 @@ pub fn listen(attr: TokenStream, item: TokenStream) -> TokenStream {
         .or_insert(1);
     assert!(
         listener_count <= LISTENER_CAPACITY as i32,
-        "listeners count reaced at the capacity {SINGLE_PRIORITY_LISETNER_CAPACITY}"
+        "listeners count reaced at the capacity {LISTENER_CAPACITY}"
     );
     let lisetner_index = listener_priority.get_listener_index() + listener_count;
-    let listener: Ident = syn::parse_str(format!("__Listener{lisetner_index}").as_str()).unwrap();
+    let listener: Ident = format_listener_name(lisetner_index).unwrap();
     let attrs = input.attrs;
     quote! {
         impl mono_event::EventListener<#event, mono_event::#listener> for #event {
             #(#attrs)*
-            default fn __listen(event: &mut #event) -> std::io::Result<()> {
+            default fn __listen(event: &mut #event) -> core::result::Result<(), ()> {
                 #block
                 #return_value
             }
@@ -103,6 +95,7 @@ pub fn listen(attr: TokenStream, item: TokenStream) -> TokenStream {
 macro_rules! priories {
     ($($priority:ident),*) => {
         #[repr(i32)]
+        #[allow(non_camel_case_types)]
         pub(crate) enum EventPriority {
             $(
                 $priority,
@@ -114,7 +107,7 @@ macro_rules! priories {
         impl EventPriority {
             const fn get_listener_index(self) -> i32 {
                 let value = self as i32;
-                value * SINGLE_PRIORITY_LISETNER_CAPACITY as i32
+                value * LISTENER_CAPACITY as i32 / PRIORITIES_AMOUNT as i32
             }
         }
 
@@ -122,10 +115,11 @@ macro_rules! priories {
         impl TryFrom<String> for EventPriority {
             type Error = std::io::Error;
 
-            fn try_from(value: String) -> Result<Self, Self::Error> {
+            fn try_from(value: String) -> core::result::Result<Self, Self::Error> {
                 Ok(match value.as_str() {
                     $(
                     stringify!($priority) => EventPriority::$priority,
+                    stringify!(mono_event::$priority) => EventPriority::$priority,
                     )*
                     _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "not a priority"))?,
                 })
@@ -134,12 +128,12 @@ macro_rules! priories {
         $(
             #[proc_macro_attribute]
             pub fn $priority(_attr: TokenStream, input: TokenStream) -> TokenStream {
-                let mut item = syn::parse_macro_input!(input as ItemFn);
+                let mut item = parse_macro_input!(input as ItemFn);
                 let attrs = &item.attrs.clone();
                 item.attrs.clear();
                 quote! {
                     #(#attrs)*
-                    #[$priority]
+                    #[mono_event::$priority]
                     #item
                 }
                 .into()
@@ -157,9 +151,46 @@ priories!(
 );
 
 #[proc_macro]
-pub fn expand_listener_structs(_item: TokenStream) -> TokenStream {
-    let output: String = (1..LISTENER_CAPACITY + 1)
-        .map(|i| format!("pub struct __Listener{i};\n",))
+pub fn expand_listeners_and_dispatching_function(_item: TokenStream) -> TokenStream {
+    let listeners: Vec<Ident> = LISTENER_RANGE
+        .map(|i| format_listener_name(i).unwrap())
         .collect();
-    output.parse().unwrap()
+    quote! {
+    #(pub struct #listeners;)*
+
+    pub fn dispatch<T, V>(v: &mut V) -> core::result::Result<(), ()>
+    where
+        #(T: EventListener<V, #listeners>,)*
+    {
+        #(<T as EventListener<V, #listeners>>::__listen(v)?;)*
+        Ok(())
+    }
+    }
+    .into()
+}
+
+#[inline(always)]
+fn format_listener_name<T: Display>(i: T) -> Result<Ident, syn::Error> {
+    syn::parse_str(format!("{LISTENER_NAME}{i}").as_str())
+}
+
+#[proc_macro]
+pub fn expand_for_test(_item: TokenStream) -> TokenStream {
+    let structs: Vec<Ident> = (0..1000)
+        .map(|i| parse_str(format!("MyStruct{i}").as_str()).unwrap())
+        .collect();
+    quote! {
+        #(
+            pub mod #structs {
+                use mono_event::{event, listen};
+            #[event]
+            pub struct #structs;
+            #[listen(#structs)]
+            fn listen(event: &mut #structs) {
+                println!("{}", stringify!(#structs));
+            }
+            }
+            )*
+    }
+    .into()
 }
